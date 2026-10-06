@@ -1,0 +1,57 @@
+# Demo scenarios. Each one pairs a ticket template with log lines that point at a bug
+# planted in seed/demo-repo. When a ticket is created from a scenario, its log lines are
+# inserted with timestamps relative to "now" (minutes_ago).
+#
+# {order_id}, {customer_id}, {amount} and {n} are filled with random values per line.
+
+scenarios:
+  - id: negative-total
+    title: Checkout fails for some orders that use a coupon
+    priority: High
+    description: |
+      Several customers report that checkout fails with a generic "payment could not be
+      processed" error. Support noticed it seems to happen on small orders where the customer
+      applied a fixed-amount coupon (e.g. SAVE25). Orders without coupons go through fine.
+      Started after the spring promo coupons went live.
+    logs:
+      - {minutes_ago: 55, repeat: 4, service: checkout-api, level: INFO, message: "checkout started order_id={order_id} items=1 coupon=SAVE25"}
+      - {minutes_ago: 54, repeat: 4, service: pricing, level: DEBUG, message: "order_total order_id={order_id} subtotal=15.00 coupon=SAVE25 amount_off=25.00 discounted=-10.00 tax=-0.80 total=-10.80"}
+      - {minutes_ago: 54, repeat: 4, service: payments, level: ERROR, message: "charge failed order_id={order_id}: PaymentError: amount must be >= 0 (order={order_id}, amount=-10.80) at orders_service/payments.py:charge"}
+      - {minutes_ago: 53, repeat: 4, service: checkout-api, level: ERROR, message: "checkout failed order_id={order_id} status=500 error=\"payment could not be processed\""}
+      - {minutes_ago: 30, repeat: 3, service: pricing, level: DEBUG, message: "order_total order_id={order_id} subtotal=120.00 coupon=SAVE25 amount_off=25.00 discounted=95.00 tax=7.60 total=102.60"}
+      - {minutes_ago: 30, repeat: 3, service: payments, level: INFO, message: "charge captured order_id={order_id} amount=102.60"}
+
+  - id: pagination-gap
+    title: Order history page is missing orders
+    priority: Medium
+    description: |
+      A customer with 40 orders says their order history only ever shows 19 orders per page
+      and some orders never appear at all, no matter which page they look at. The page says
+      "20 per page". We confirmed the orders exist in the database.
+    logs:
+      - {minutes_ago: 40, repeat: 3, service: orders-api, level: INFO, message: "GET /customers/{customer_id}/orders?page=1&page_size=20 total_items=40"}
+      - {minutes_ago: 40, repeat: 3, service: orders-api, level: WARN, message: "page size mismatch customer_id={customer_id} page=1 requested=20 returned=19 (orders_service.pagination.paginate)"}
+      - {minutes_ago: 39, repeat: 2, service: orders-api, level: WARN, message: "page size mismatch customer_id={customer_id} page=2 requested=20 returned=19 (orders_service.pagination.paginate)"}
+      - {minutes_ago: 38, repeat: 1, service: orders-api, level: WARN, message: "order never served customer_id={customer_id} order_index=19 (0-based) not present on page 1 or page 2"}
+
+  - id: tz-date
+    title: Order dates show the wrong day for some customers
+    priority: Medium
+    description: |
+      Customers in the US say late-evening orders show up with tomorrow's date on the order
+      summary page. For example, an order placed at 8:30 PM Pacific shows the next calendar
+      day. Customers in the UK haven't complained.
+    logs:
+      - {minutes_ago: 35, repeat: 3, service: orders-api, level: INFO, message: "order_summary order_id={order_id} customer_id={customer_id} created_at=2026-03-01T04:30:00+00:00 customer_utc_offset_minutes=-480 rendered_date=2026-03-01"}
+      - {minutes_ago: 34, repeat: 2, service: support-tool, level: WARN, message: "customer complaint customer_id={customer_id} expected_date=2026-02-28 shown_date=2026-03-01 (orders_service.formatting.format_order_date)"}
+      - {minutes_ago: 20, repeat: 2, service: orders-api, level: INFO, message: "order_summary order_id={order_id} customer_id={customer_id} created_at=2026-03-01T15:00:00+00:00 customer_utc_offset_minutes=0 rendered_date=2026-03-01"}
+
+# Generic background log lines mixed in for realism.
+noise:
+  - {service: checkout-api, level: INFO, message: "checkout started order_id={order_id} items={n}"}
+  - {service: payments, level: INFO, message: "charge captured order_id={order_id} amount={amount}"}
+  - {service: orders-api, level: INFO, message: "GET /orders/{order_id} 200 {n}ms"}
+  - {service: orders-api, level: INFO, message: "GET /customers/{customer_id}/orders?page=1 200 {n}ms"}
+  - {service: inventory, level: INFO, message: "reserved stock order_id={order_id} skus={n}"}
+  - {service: inventory, level: WARN, message: "low stock sku=SKU-{n} remaining={n}"}
+  - {service: auth, level: INFO, message: "token refreshed customer_id={customer_id}"}

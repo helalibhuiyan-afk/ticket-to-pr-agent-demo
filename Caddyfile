@@ -1,0 +1,9 @@
+:80 {
+	encode gzip
+	handle /api/* {
+		reverse_proxy control-plane:8000
+	}
+	handle {
+		reverse_proxy ui:80
+	}
+}

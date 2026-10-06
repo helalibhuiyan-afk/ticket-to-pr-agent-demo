@@ -1,0 +1,35 @@
+# Resolved tickets seeded into the fake Jira as "previous case history".
+tickets:
+  - key: DEMO-7
+    title: Duplicate orders shown on page 2 of order history
+    priority: Medium
+    status: Done
+    description: Customers saw the last order of page 1 repeated as the first order of page 2.
+    resolution: |
+      Root cause: page start offset was computed as (page-1)*page_size - 1 in
+      orders_service/pagination.py. Fixed the offset; slice end must be start + page_size
+      because Python slices exclude the end index.
+  - key: DEMO-12
+    title: Tax rounding off by one cent on discounted orders
+    priority: Low
+    status: Done
+    description: Order totals were sometimes one cent higher than the receipt.
+    resolution: |
+      Root cause: tax was computed before applying the coupon in orders_service/pricing.py.
+      Fixed by computing tax on the discounted amount and quantizing with ROUND_HALF_UP.
+      Lesson: always clamp/validate amounts after discounts.
+  - key: DEMO-15
+    title: Daily sales report shifts orders to the wrong day after DST change
+    priority: Medium
+    status: Done
+    description: The daily report grouped orders near midnight into the wrong date.
+    resolution: |
+      Root cause: timestamps are stored in UTC and were formatted without converting to the
+      customer's/report timezone. Fixed by converting with the customer's UTC offset before
+      formatting the date (datetime.astimezone with a fixed-offset timezone).
+  - key: DEMO-19
+    title: Checkout times out when inventory service is slow
+    priority: High
+    status: Done
+    description: Checkout requests hit the 30s gateway timeout during inventory brownouts.
+    resolution: Added a 2s timeout and retry on the inventory reservation call.

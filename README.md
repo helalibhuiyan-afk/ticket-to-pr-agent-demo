@@ -37,7 +37,7 @@ There are few components in this demo system, each of which should be running in
   - End user approves the fix.
   - The agent takes developer role and picks up the task. It reads a small demo repository service and prepares a patch.
   - It creates a dummy PR stored inside the demo, containing the diff and description.
-- A local LLM. The agent will use this local LLM. Suggest me options.
+- A local LLM. The agent will use this local LLM (Ollama with `gpt-oss:20b` by default; see DESIGN.md §12).
 - A reverse proxy
 
 ### Call flow. 
@@ -53,3 +53,52 @@ There are few components in this demo system, each of which should be running in
 ## Physical Architecture
 This demo will be hosted on a cloud-hosted Ubuntu x86 machine with 4 cores, 32Gb memory, and 100GB of boot volume. 
 This machine has a public IP, accessible from the internet, and has this GitHub repo cloned.
+
+## Running the demo
+
+On the Ubuntu VM, from the repo root:
+
+```bash
+./demo.sh setup     # once: installs Docker if needed and creates .env
+./demo.sh start     # builds and starts everything, downloads the model on first run, prints the URL
+```
+
+Open the printed URL, click **New ticket**, pick a scenario and create it. The agent picks it up within a
+few seconds; follow its work in the **Agent activity** panel, approve the proposed fix, and the agent
+opens a PR with a diff and passing tests.
+
+| Command | What it does |
+|---|---|
+| `./demo.sh start` | Build and start everything, download the model if needed, print the URL |
+| `./demo.sh stop` | Stop the containers (keeps data) |
+| `./demo.sh restart` | Stop, then start (picks up `.env` and code changes) |
+| `./demo.sh status` | Containers, health and URL |
+| `./demo.sh logs [service]` | Follow logs, e.g. `./demo.sh logs agent` |
+| `./demo.sh reset` | Delete all tickets, cases and PRs (keeps the model), then start fresh |
+| `./demo.sh down` | Remove the containers (keeps data) |
+
+### Choosing the LLM
+
+Edit `.env`, then `./demo.sh restart`:
+
+- **Local (default):** `LLM_MODEL=gpt-oss:20b` via Ollama. Lighter options: `qwen3:8b`, `qwen2.5-coder:7b`.
+  On a CPU-only VM expect minutes per investigation.
+- **Hosted:** set `COMPOSE_PROFILES=` (empty) and point `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` at any
+  OpenAI-compatible endpoint.
+- **Smoke test:** `COMPOSE_PROFILES=mock-llm` and `LLM_BASE_URL=http://mock-llm:9010/v1` run a scripted fake
+  LLM that walks the `negative-total` scenario end to end in seconds, to check the plumbing.
+
+### Repository layout
+
+```
+demo.sh, docker-compose.yml, Caddyfile, .env.example
+seed/            scenarios, historical tickets, and the demo repo (orders-service) the agent fixes
+services/
+  control-plane/ case state machine, task queue, public + internal API
+  demo-service/  fake Jira, fake logs, fake repo/PR service
+  mcp-gateway/   MCP server exposing jira_*, logs_*, repo_*, context_* tools
+  agent/         worker that polls for tasks and runs the investigator/developer roles
+  ui/            static web UI
+```
+
+See [DESIGN.md](DESIGN.md) for the detailed design.

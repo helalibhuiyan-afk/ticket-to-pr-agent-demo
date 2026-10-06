@@ -7,12 +7,12 @@ simplest thing that makes the demo reliable on a single CPU-only VM (4 vCPU, 32 
 
 | Topic | Decision |
 |---|---|
-| Language / frameworks | Python 3.12 + FastAPI for all backend services; React + Vite for the UI |
+| Language / frameworks | Python 3.12 + Starlette for all backend services; plain HTML/JS UI (no build step) |
 | Packaging | One container per component, wired with Docker Compose |
 | Lifecycle | `./demo.sh` — setup / start / stop / restart / status / logs / reset |
 | Security | None. Short-lived demo; only the reverse proxy port is published |
 | LLM | Ollama, default model `gpt-oss:20b`, swappable via `.env` (any OpenAI-compatible endpoint) |
-| MCP | One gateway, Python MCP SDK (FastMCP), streamable HTTP at `/mcp`, tools namespaced by module |
+| MCP | One gateway, Python MCP SDK v2 (`MCPServer`), streamable HTTP at `/mcp`, tools prefixed by module (`jira_`, `logs_`, `repo_`, `context_`) |
 | Agent work pickup | Agent **polls** the control plane task table and claims tasks with a lease |
 | Results write-back | Through MCP write tools on the Context module (control plane = source of truth) |
 | Ticket vs. case ownership | Fake Jira owns ticket content; control plane owns workflow state |
@@ -39,11 +39,11 @@ simplest thing that makes the demo reliable on a single CPU-only VM (4 vCPU, 32 
 | Container | Image / stack | Published? | Persistent volume |
 |---|---|---|---|
 | `proxy` | `caddy:2` | **yes, :80** | — |
-| `ui` | node build stage → `nginx:alpine` | no | — |
-| `control-plane` | python:3.12-slim + FastAPI | no | `cp-data` (SQLite) |
-| `demo-service` | python:3.12-slim + FastAPI + pytest | no | `demo-data` (SQLite + PR workspaces) |
+| `ui` | static files on `nginx:alpine` | no | — |
+| `control-plane` | python:3.12-slim + Starlette | no | `cp-data` (SQLite) |
+| `demo-service` | python:3.12-slim + Starlette | no | `demo-data` (SQLite) |
 | `mcp-gateway` | python:3.12-slim + `mcp` SDK | no | — |
-| `agent` | python:3.12-slim + `openai` + `mcp` client | no | — |
+| `agent` | python:3.12-slim + `mcp` client + `requests` | no | — |
 | `ollama` | `ollama/ollama` | no | `ollama-models` (kept across resets) |
 
 `/internal/*` routes on the control plane are reachable only on the Compose network (the proxy
@@ -143,7 +143,8 @@ Guardrails that make a small model workable:
 
 ## 7. MCP gateway tools
 
-Single FastMCP server, streamable HTTP at `http://mcp-gateway:8000/mcp`.
+Single MCP server (SDK v2 `MCPServer`), streamable HTTP at `http://mcp-gateway:8000/mcp`. Tool names use a
+module prefix with an underscore (`jira_get_ticket`), because OpenAI-style tool names can't contain dots.
 
 **jira** → demo-service `/jira`
 - `get_ticket(key)`
@@ -163,7 +164,8 @@ Single FastMCP server, streamable HTTP at `http://mcp-gateway:8000/mcp`.
   `edits = [{ "path": str, "search": str, "replace": str }]`. Each `search` must match exactly
   once in the file (otherwise a descriptive error is returned so the model can retry). The
   service applies edits on a copy of the repo, runs `pytest`, renders a unified diff, and stores
-  the PR (`PR-1`, `PR-2`, …) with diff, description and test results. A PR whose tests fail is
+  the PR (`PR-1`, `PR-2`, …) with diff, description and test results. Tests use the standard library
+  `unittest` runner, so the demo-service image needs no test dependencies. A PR whose tests fail is
   rejected with the test output.
 
 **context** → control-plane `/internal`
@@ -303,3 +305,17 @@ services/
 5. agent: worker loop, roles, event posting, finalization check.
 6. UI.
 7. End-to-end on the VM with each scenario; tune prompts and step budgets for the chosen model.
+
+## 16. Implementation notes (as built)
+
+- Backend services use Starlette rather than FastAPI and the UI is plain HTML/JS. Both keep dependencies
+  minimal and let everything be run and tested without a package build step.
+- MCP tool names: `jira_get_ticket`, `jira_search_tickets`, `jira_add_comment`, `logs_search`,
+  `repo_list_files`, `repo_read_file`, `repo_search_code`, `repo_run_tests`, `repo_create_pull_request`,
+  `context_get_case`, `context_submit_investigation`, `context_record_pull_request`.
+- The worker forces `case_id` in tool arguments to the task's case, inlines JSON-schema `$ref`s for
+  servers that don't resolve them (Ollama), nudges the model once if it stops early, and records an
+  unrecorded PR on its own (finalization check).
+- `ticket_title` is cached on the case for the list view only; Jira remains the owner of ticket content.
+- `services/agent/tests/mock_llm.py` is a scripted OpenAI-compatible server used to smoke-test the
+  full pipeline (`COMPOSE_PROFILES=mock-llm`).

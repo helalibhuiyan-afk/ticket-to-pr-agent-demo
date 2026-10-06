@@ -1,0 +1,87 @@
+name: ticket-to-pr
+
+services:
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - ui
+      - control-plane
+
+  ui:
+    build: ./services/ui
+    restart: unless-stopped
+
+  control-plane:
+    restart: unless-stopped
+    build: ./services/control-plane
+    environment:
+      DEMO_SERVICE_URL: http://demo-service:8000
+      MAX_TASK_ATTEMPTS: ${MAX_TASK_ATTEMPTS:-2}
+      TASK_LEASE_SECONDS: ${TASK_LEASE_SECONDS:-1200}
+    volumes:
+      - ./seed:/seed:ro
+      - cp-data:/data
+    depends_on:
+      demo-service:
+        condition: service_healthy
+
+  demo-service:
+    restart: unless-stopped
+    build: ./services/demo-service
+    volumes:
+      - ./seed:/seed:ro
+      - demo-data:/data
+
+  mcp-gateway:
+    restart: unless-stopped
+    build: ./services/mcp-gateway
+    environment:
+      DEMO_SERVICE_URL: http://demo-service:8000
+      CONTROL_PLANE_URL: http://control-plane:8000
+    depends_on:
+      control-plane:
+        condition: service_healthy
+
+  agent:
+    restart: unless-stopped
+    build: ./services/agent
+    environment:
+      CONTROL_PLANE_URL: http://control-plane:8000
+      DEMO_SERVICE_URL: http://demo-service:8000
+      MCP_URL: http://mcp-gateway:8000/mcp
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-oss:20b}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-900}
+    depends_on:
+      mcp-gateway:
+        condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local-llm"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-16384}
+      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_NUM_PARALLEL: 1
+    volumes:
+      - ollama-models:/root/.ollama
+
+  # Scripted fake LLM for checking the pipeline end to end in seconds (see README).
+  mock-llm:
+    build: ./services/agent
+    profiles: ["mock-llm"]
+    restart: unless-stopped
+    command: ["uvicorn", "tests.mock_llm:app", "--host", "0.0.0.0", "--port", "9010"]
+
+volumes:
+  cp-data:
+  demo-data:
+  ollama-models:
