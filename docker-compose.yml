@@ -25,6 +25,7 @@ services:
       TASK_LEASE_SECONDS: ${TASK_LEASE_SECONDS:-1200}
       LLM_MODEL: ${LLM_MODEL:-gpt-oss:20b}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
+      DEFAULT_LLM_MODE: ${DEFAULT_LLM_MODE:-real}
     volumes:
       - ./seed:/seed:ro
       - cp-data:/data
@@ -61,6 +62,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-900}
+      MOCK_LLM_BASE_URL: http://mock-llm:9010/v1
     depends_on:
       mcp-gateway:
         condition: service_healthy
@@ -76,11 +78,12 @@ services:
     volumes:
       - ollama-models:/root/.ollama
 
-  # Scripted fake LLM for checking the pipeline end to end in seconds (see README).
+  # Scripted "LLM" that plays the demo scenarios in seconds. Selectable at runtime from the UI.
   mock-llm:
     build: ./services/agent
-    profiles: ["mock-llm"]
     restart: unless-stopped
+    environment:
+      MOCK_DELAY_SECONDS: ${MOCK_DELAY_SECONDS:-0.8}
     command: ["uvicorn", "tests.mock_llm:app", "--host", "0.0.0.0", "--port", "9010"]
 
 volumes:

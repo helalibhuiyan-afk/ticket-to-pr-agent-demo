@@ -317,5 +317,8 @@ services/
   servers that don't resolve them (Ollama), nudges the model once if it stops early, and records an
   unrecorded PR on its own (finalization check).
 - `ticket_title` is cached on the case for the list view only; Jira remains the owner of ticket content.
-- `services/agent/tests/mock_llm.py` is a scripted OpenAI-compatible server used to smoke-test the
-  full pipeline (`COMPOSE_PROFILES=mock-llm`).
+- `services/agent/tests/mock_llm.py` is a scripted OpenAI-compatible server that knows the three demo
+  scenarios. It always runs as the `mock-llm` container.
+- LLM switch: the control plane stores the selected mode (`real` | `mock`) in a `settings` table, exposed via
+  `GET /api/info` and `POST /api/settings/llm`. When the agent claims a task, the response includes
+  `llm_mode`; the worker uses that backend for the whole task and records it in the timeline.

@@ -315,3 +315,24 @@ table.tools td:first-child { white-space: nowrap; }
   table.tools code { word-break: break-all; }
   table.tools th:last-child, table.tools td:last-child { display: none; }
 }
+
+/* ---------- LLM switch ---------- */
+.llm-switch { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ls-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.ls-options { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--code-bg); border: 1px solid var(--border); gap: 3px; }
+.ls-options button { border: 0; background: transparent; color: var(--muted); font: inherit; cursor: pointer; border-radius: 7px;
+  padding: 6px 14px; display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; text-align: left; }
+.ls-options button strong { font-size: 13.5px; color: inherit; }
+.ls-options button small { font-size: 11.5px; opacity: .85; }
+.ls-options button:hover:not(.on) { color: var(--text); }
+.ls-options button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(16,24,40,.12); }
+.ls-options button:disabled { cursor: wait; }
+.ls-hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.llm-card { padding: 16px 22px; }
+.hero-switch { margin-top: 26px; position: relative; z-index: 1; }
+.llm-switch.on-dark .ls-label { color: var(--hero-muted); }
+.llm-switch.on-dark .ls-options { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.16); }
+.llm-switch.on-dark .ls-options button { color: var(--hero-muted); }
+.llm-switch.on-dark .ls-options button:hover:not(.on) { color: #fff; }
+.llm-switch.on-dark .ls-options button.on { background: #fff; color: #1a2550; }
+.hero-switch .ls-hint { color: var(--hero-muted); }

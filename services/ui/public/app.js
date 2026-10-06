@@ -56,12 +56,57 @@ function taskText(task, state) {
 
 // ---------- router ----------
 let info = null;
-async function loadInfo() {
-  if (info) return info;
-  try { info = await api("/info"); } catch { info = { model: "unknown", provider: "" }; }
+function setFooter() {
   const f = document.getElementById("footer-model");
-  if (f) f.textContent = `Model: ${info.model}${info.provider ? " · " + info.provider : ""}`;
+  if (f && info) f.textContent = `Agent LLM: ${info.llm_mode === "mock" ? "Mock (scripted)" : info.model}`;
+}
+async function loadInfo(force = false) {
+  if (info && !force) return info;
+  try { info = await api("/info"); } catch { info = { llm_mode: "real", model: "unknown", provider: "", options: [] }; }
+  setFooter();
   return info;
+}
+
+function llmHint(i) {
+  if (!i) return "";
+  const opt = (i.options || []).find(o => o.id === i.llm_mode) || {};
+  return i.llm_mode === "mock"
+    ? "Instant scripted responses for the three demo scenarios. Free-form tickets get a low-confidence placeholder."
+    : `${opt.model || i.model} · ${opt.provider || i.provider}. On a CPU-only VM each step can take a while.`;
+}
+
+function llmSwitchHtml(variant = "") {
+  const i = info || { llm_mode: "real", options: [] };
+  const real = (i.options || []).find(o => o.id === "real") || { model: i.model };
+  const btn = (mode, title, sub) => `
+    <button type="button" role="radio" aria-checked="${i.llm_mode === mode}" class="${i.llm_mode === mode ? "on" : ""}" data-mode="${mode}">
+      <strong>${esc(title)}</strong><small>${esc(sub)}</small></button>`;
+  return `<div class="llm-switch ${variant}">
+      <span class="ls-label">Agent LLM</span>
+      <div class="ls-options" role="radiogroup" aria-label="Agent LLM">
+        ${btn("real", "Real LLM", real.model || "model")}
+        ${btn("mock", "Mock LLM", "instant, scripted")}
+      </div>
+    </div>
+    <div class="ls-hint">${esc(llmHint(i))} Applies to the next task the agent picks up.</div>`;
+}
+
+function mountLlmSwitches() {
+  document.querySelectorAll("[data-llm-switch]").forEach(el => {
+    el.innerHTML = llmSwitchHtml(el.dataset.llmSwitch);
+    el.querySelectorAll("button[data-mode]").forEach(b => b.addEventListener("click", async () => {
+      if (info && b.dataset.mode === info.llm_mode) return;
+      el.querySelectorAll("button").forEach(x => x.disabled = true);
+      try {
+        info = await api("/settings/llm", { method: "POST", body: { mode: b.dataset.mode } });
+        setFooter();
+        toast(b.dataset.mode === "mock" ? "Switched to the mock LLM" : "Switched to the real LLM");
+      } catch (e) { toast(e.message); }
+      mountLlmSwitches();
+      const d = document.getElementById("diagram");
+      if (d) d.innerHTML = archDiagram(info);
+    }));
+  });
 }
 
 function route() {
@@ -97,7 +142,7 @@ function renderHome() {
         <a class="btn btn-light" href="#/new">Create a ticket</a>
         <a class="btn btn-ghost-light" href="#/architecture">See how it works</a>
       </div>
-      <div class="model-pill" id="model-pill"><span class="dot-live"></span><span>Loading model info…</span></div>
+      <div class="hero-switch" data-llm-switch="on-dark"></div>
     </section>
 
     <div class="stats" id="stats">
@@ -113,10 +158,8 @@ function renderHome() {
     <div class="section-head"><h2>Tickets</h2><a class="btn btn-sm" href="#/new">New ticket</a></div>
     <div class="card flush" id="list"><div class="muted" style="padding:14px">Loading…</div></div>`;
 
-  loadInfo().then(i => {
-    const el = document.getElementById("model-pill");
-    if (el) el.innerHTML = `<span class="dot-live"></span><span>Agent model <b>${esc(i.model)}</b> · ${esc(i.provider)}</span>`;
-  });
+  mountLlmSwitches();
+  loadInfo(true).then(mountLlmSwitches);
 
   every(async () => {
     try {
@@ -159,6 +202,7 @@ async function renderNew() {
   app.innerHTML = `
     <div class="page-head"><div><h1>New ticket</h1>
       <div class="muted">Pick a demo scenario to pre-fill a ticket whose logs and code contain a real bug, or write your own.</div></div></div>
+    <div class="card llm-card"><div data-llm-switch=""></div></div>
     <div class="card">
       <h2>Scenario</h2>
       <div class="scenarios" id="scenarios"><div class="muted">Loading…</div></div>
@@ -170,6 +214,8 @@ async function renderNew() {
         <select id="priority"><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select></div>
       <div><button class="btn btn-primary" type="submit" id="submit">Create ticket</button></div>
     </form>`;
+  mountLlmSwitches();
+  loadInfo(true).then(mountLlmSwitches);
   let scenarioId = null;
   const box = document.getElementById("scenarios");
   try {
@@ -428,7 +474,8 @@ const ICONS = {
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg>',
 };
 
-function archDiagram(model) {
+function archDiagram(i) {
+  const model = i ? ((i.options || []).find(o => o.id === "real") || {}).model || i.model : "";
   const box = (x, y, title, l1, l2, cls = "") => `
     <rect class="box ${cls}" x="${x}" y="${y}" width="150" height="96" rx="10"/>
     <text class="t" x="${x + 75}" y="${y + 38}" text-anchor="middle">${esc(title)}</text>
@@ -449,7 +496,7 @@ function archDiagram(model) {
     ${box(420, 290, "Control plane", "Case state machine", "task queue · SQLite", "hl")}
     ${box(640, 30, "Agent worker", "Investigator and", "developer roles", "hl")}
     ${box(640, 290, "MCP gateway", "jira · logs · repo", "· context tools")}
-    ${box(860, 30, "LLM", model || "Ollama", "OpenAI-compatible API", "ext")}
+    ${box(860, 30, "LLM", model || "Ollama", "or scripted mock", "ext")}
     ${box(860, 290, "Demo service", "Fake Jira · logs", "repo + PRs · SQLite")}
     ${edge("M170,208 H198")}
     ${edge("M350,208 H385 V78 H418")}
@@ -490,7 +537,7 @@ const COMPONENTS = [
   ["Agent worker", "Python · MCP client", "Polls for tasks and runs a tool-calling loop with the LLM. Each role has its own prompt, tool allowlist and step budget."],
   ["MCP gateway", "Python · MCP SDK", "One MCP server exposing Jira, logs, repository and case-context tools over streamable HTTP. The agent only acts through these tools."],
   ["Demo service", "Python · Starlette · SQLite", "Stands in for real systems: a Jira-like ticket store with history, an application log store, and a repository that applies edits, runs tests and renders diffs."],
-  ["LLM", "Ollama or any OpenAI-compatible API", "A local open-weight model by default, so the demo runs with no external dependencies. Swappable for a hosted model with one setting."],
+  ["LLM", "Ollama or any OpenAI-compatible API", "A local open-weight model by default, so the demo runs with no external dependencies. A scripted mock LLM runs alongside it; switch between them from the dashboard."],
   ["Reverse proxy", "Caddy", "The only public entry point: serves the UI and routes /api to the control plane. Internal services are not exposed."],
 ];
 
@@ -544,7 +591,7 @@ function renderArchitecture() {
 
     <div class="section-head" id="arch-diagram"><h2>Architecture</h2></div>
     <div class="card">
-      <div class="diagram-wrap" id="diagram">${archDiagram(info?.model)}</div>
+      <div class="diagram-wrap" id="diagram">${archDiagram(info)}</div>
       <div class="legend"><span><i></i>Service-to-service HTTP</span><span><i class="agent"></i>Agent traffic</span>
         <span>Highlighted: orchestration (control plane) and reasoning (agent)</span></div>
       <p class="muted small" style="margin:14px 0 0">Every component runs as its own Docker container on a single VM, started with one script.
@@ -586,7 +633,7 @@ function renderArchitecture() {
     ev.preventDefault();
     document.querySelector(a.getAttribute("href"))?.scrollIntoView({ behavior: "smooth", block: "start" });
   }));
-  if (!info) loadInfo().then(i => { const d = document.getElementById("diagram"); if (d) d.innerHTML = archDiagram(i.model); });
+  if (!info) loadInfo().then(i => { const d = document.getElementById("diagram"); if (d) d.innerHTML = archDiagram(i); });
 }
 
 loadInfo();

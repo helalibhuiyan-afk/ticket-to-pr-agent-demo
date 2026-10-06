@@ -3,7 +3,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import cases, tasks
+from . import cases, settings, tasks
 from .config import SEED_DIR
 from .db import connect
 from .util import ApiError, json_body
@@ -25,12 +25,19 @@ async def health(request):
 
 
 async def info(request):
-    """What the UI shows about the running setup."""
-    import os
-    base = os.environ.get("LLM_BASE_URL", "")
-    provider = ("Local model via Ollama" if "ollama" in base else
-                "Scripted mock LLM" if "mock-llm" in base else "Hosted OpenAI-compatible API")
-    return JSONResponse({"model": os.environ.get("LLM_MODEL", "unknown"), "provider": provider})
+    """What the UI shows about the running setup, including the selected LLM."""
+    with connect() as conn:
+        mode = settings.llm_mode(conn)
+    options = settings.llm_options()
+    current = next(o for o in options if o["id"] == mode)
+    return JSONResponse({"llm_mode": mode, "model": current["model"], "provider": current["provider"], "options": options})
+
+
+async def set_llm(request: Request):
+    body = await json_body(request)
+    with connect() as conn:
+        settings.set_llm_mode(conn, str(body.get("mode") or ""))
+    return await info(request)
 
 
 async def list_scenarios(request):
@@ -95,6 +102,7 @@ async def retry(request):
 public_routes = [
     Route("/health", health),
     Route("/info", info),
+    Route("/settings/llm", set_llm, methods=["POST"]),
     Route("/scenarios", list_scenarios),
     Route("/tickets", create_ticket, methods=["POST"]),
     Route("/cases", list_cases),

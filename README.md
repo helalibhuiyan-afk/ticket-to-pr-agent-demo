@@ -79,14 +79,19 @@ opens a PR with a diff and passing tests.
 
 ### Choosing the LLM
 
-Edit `.env`, then `./demo.sh restart`:
+Two LLMs are always available, and you can switch between them at any time from the **Agent LLM**
+toggle on the dashboard or the New ticket page. The choice applies to the next task the agent picks up.
 
-- **Local (default):** `LLM_MODEL=gpt-oss:20b` via Ollama. Lighter options: `qwen3:8b`, `qwen2.5-coder:7b`.
-  On a CPU-only VM expect minutes per investigation.
-- **Hosted:** set `COMPOSE_PROFILES=` (empty) and point `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` at any
+- **Real LLM:** the model configured in `.env`. By default that's `gpt-oss:20b` via Ollama; lighter options
+  are `qwen3:8b` and `qwen2.5-coder:7b`. On a CPU-only VM expect minutes per investigation. To use a hosted
+  model instead, set `COMPOSE_PROFILES=` (empty) and point `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` at any
   OpenAI-compatible endpoint.
-- **Smoke test:** `COMPOSE_PROFILES=mock-llm` and `LLM_BASE_URL=http://mock-llm:9010/v1` run a scripted fake
-  LLM that walks the `negative-total` scenario end to end in seconds, to check the plumbing.
+- **Mock LLM:** a scripted stand-in that plays back realistic investigations and fixes for the three demo
+  scenarios in seconds, calling the same tools a real model would. Free-form tickets get a low-confidence
+  investigation and a placeholder test. Good for live demos and for checking the plumbing.
+
+`DEFAULT_LLM_MODE` in `.env` (`real` or `mock`) sets the initial selection; after that the UI choice is saved.
+If a case failed because the real model was too slow, switch to Mock and click **Retry** on the case.
 
 ### Repository layout
 

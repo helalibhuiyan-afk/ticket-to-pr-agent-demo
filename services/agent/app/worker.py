@@ -13,7 +13,7 @@ from pathlib import Path
 from mcp import Client
 
 from . import control, llm
-from .config import HEARTBEAT_SECONDS, LLM_MODEL, MAX_TOOL_RESULT_CHARS, MCP_URL, POLL_SECONDS, WORKER_ID
+from .config import BACKENDS, HEARTBEAT_SECONDS, LLM_MODEL, MAX_TOOL_RESULT_CHARS, MCP_URL, POLL_SECONDS, WORKER_ID
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("agent")
@@ -104,6 +104,8 @@ async def _heartbeat(task_id: int) -> None:
 async def run_role(task: dict) -> None:
     role = ROLES[task["type"]]
     case_id = task["case_id"]
+    mode = task.get("llm_mode") if task.get("llm_mode") in BACKENDS else "real"
+    model = BACKENDS[mode]["model"]
     system = (ROLES_DIR / role.prompt_file).read_text()
     user = (f"Case id: {case_id}\nTicket: {task['ticket_key']}\n"
             f"Start by calling context_get_case with case_id={case_id}. "
@@ -112,16 +114,16 @@ async def run_role(task: dict) -> None:
 
     async with Client(MCP_URL) as mcp:
         tools = _openai_tools((await mcp.list_tools()).tools, role.tools)
-        await _event(task, "info", {"message": f"{role.name} started with model {LLM_MODEL}",
+        await _event(task, "info", {"message": f"{role.name} started with model {model} ({mode} LLM)",
                                     "tools": [t["function"]["name"] for t in tools]})
         tool_calls_used, nudged = 0, False
         while tool_calls_used < role.max_tool_calls:
-            message, stats = await asyncio.to_thread(llm.chat, messages, tools)
+            message, stats = await asyncio.to_thread(llm.chat, messages, tools, mode)
             content = message.get("content") or ""
             reasoning = message.get("reasoning") or message.get("reasoning_content") or ""
             calls = message.get("tool_calls") or []
             await _event(task, "llm_message", {"role": role.name, "content": content, "reasoning": reasoning[:4000],
-                                               "tool_calls": [c["function"]["name"] for c in calls], **stats})
+                                               "tool_calls": [c["function"]["name"] for c in calls], "model": model, **stats})
             for c in calls:
                 c.setdefault("id", f"call_{uuid.uuid4().hex[:8]}")
                 c.setdefault("type", "function")
@@ -176,6 +178,13 @@ async def finalize(task: dict) -> bool:
     return False
 
 
+def _root_cause(exc: BaseException) -> BaseException:
+    """MCP's client wraps errors raised inside it in exception groups; surface the real one."""
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return exc
+
+
 async def handle(task: dict) -> None:
     log.info("task %s: %s for case %s (%s), attempt %s", task["id"], task["type"], task["case_id"],
              task["ticket_key"], task["attempts"])
@@ -191,6 +200,7 @@ async def handle(task: dict) -> None:
         log.info("task %s finished: %s", task["id"], result)
     except Exception as exc:  # noqa: BLE001
         log.exception("task %s failed", task["id"])
+        exc = _root_cause(exc)
         await _event(task, "error", {"message": "agent error", "error": str(exc)[:2000]})
         try:
             result = await asyncio.to_thread(control.fail, task["id"], f"{type(exc).__name__}: {exc}")

@@ -1,6 +1,7 @@
 """Task queue the agent polls. All functions expect an open connection (see db.connect)."""
 from datetime import datetime, timedelta, timezone
 
+from . import settings
 from . import state_machine as sm
 from .config import MAX_TASK_ATTEMPTS, TASK_LEASE_SECONDS
 from .db import add_event
@@ -79,8 +80,10 @@ def claim(conn, worker_id: str) -> dict | None:
             sm.transition(conn, case["id"], running_state, f"agent {worker_id} picked up {task['type']}", task["id"])
         task = get_task(conn, task["id"])
         task["ticket_key"] = case["ticket_key"]
+        task["llm_mode"] = settings.llm_mode(conn)  # the agent uses this LLM for the whole task
         add_event(conn, case["id"], "info",
-                  {"message": f"agent {worker_id} started {task['type']} (attempt {task['attempts']}/{MAX_TASK_ATTEMPTS})"},
+                  {"message": f"agent {worker_id} started {task['type']} with the {task['llm_mode']} LLM "
+                             f"(attempt {task['attempts']}/{MAX_TASK_ATTEMPTS})"},
                   task["id"])
         return task
 

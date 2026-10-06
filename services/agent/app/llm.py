@@ -3,21 +3,22 @@ import time
 
 import requests
 
-from .config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TEMPERATURE, LLM_TIMEOUT_SECONDS
+from .config import BACKENDS, LLM_TEMPERATURE, LLM_TIMEOUT_SECONDS
 
 
 class LLMError(Exception):
     pass
 
 
-def chat(messages: list[dict], tools: list[dict]) -> tuple[dict, dict]:
-    """Returns (assistant_message, stats)."""
+def chat(messages: list[dict], tools: list[dict], mode: str = "real") -> tuple[dict, dict]:
+    """Returns (assistant_message, stats). mode selects the backend: "real" or "mock"."""
+    backend = BACKENDS.get(mode, BACKENDS["real"])
     started = time.monotonic()
     try:
         resp = requests.post(
-            f"{LLM_BASE_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-            json={"model": LLM_MODEL, "messages": messages, "tools": tools, "tool_choice": "auto",
+            f"{backend['base_url']}/chat/completions",
+            headers={"Authorization": f"Bearer {backend['api_key']}"},
+            json={"model": backend["model"], "messages": messages, "tools": tools, "tool_choice": "auto",
                   "temperature": LLM_TEMPERATURE},
             timeout=LLM_TIMEOUT_SECONDS,
         )
