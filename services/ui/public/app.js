@@ -55,32 +55,84 @@ function taskText(task, state) {
 }
 
 // ---------- router ----------
+let info = null;
+async function loadInfo() {
+  if (info) return info;
+  try { info = await api("/info"); } catch { info = { model: "unknown", provider: "" }; }
+  const f = document.getElementById("footer-model");
+  if (f) f.textContent = `Model: ${info.model}${info.provider ? " · " + info.provider : ""}`;
+  return info;
+}
+
 function route() {
   timers.forEach(clearInterval); timers = [];
   const hash = location.hash || "#/";
-  document.querySelectorAll("[data-nav]").forEach(a => a.classList.remove("active"));
-  let m;
-  if (hash === "#/new") return renderNew();
-  if ((m = hash.match(/^#\/cases\/(\d+)/))) return renderCase(Number(m[1]));
-  return renderList();
+  let m, nav = "home";
+  if (hash === "#/new") { nav = "new"; renderNew(); }
+  else if (hash.startsWith("#/architecture")) { nav = "architecture"; renderArchitecture(); }
+  else if ((m = hash.match(/^#\/cases\/(\d+)/))) { nav = ""; renderCase(Number(m[1])); }
+  else renderHome();
+  document.querySelectorAll("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === nav));
+  window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", route);
 
-// ---------- list ----------
-function renderList() {
+// ---------- home / dashboard ----------
+const HOW_STEPS = [
+  ["Report", "Someone files a bug ticket describing what users are seeing.", "You"],
+  ["Investigate", "The agent reads the ticket, searches logs and past incidents, reads the code and writes up the root cause with evidence.", "Agent"],
+  ["Approve", "You review the proposed fix. Approve it, ask for changes, or reject it.", "You"],
+  ["Open a PR", "The agent writes the patch and a regression test, runs the test suite and opens a pull request.", "Agent"],
+];
+
+function renderHome() {
   app.innerHTML = `
-    <div class="page-head">
-      <div><h1>Tickets</h1><div class="muted">Each ticket becomes a case the agent investigates and fixes.</div></div>
-      <a class="btn btn-primary" href="#/new">New ticket</a>
+    <section class="hero">
+      <div class="eyebrow">Agentic bug triage demo</div>
+      <h1>From bug ticket to pull request, with a human approving every fix</h1>
+      <p class="lead">File a ticket and an AI agent investigates it like an engineer on call: it reads the logs, past incidents
+        and the code, explains the root cause and proposes a fix. Once you approve, it writes the patch, runs the tests
+        and opens a pull request.</p>
+      <div class="cta">
+        <a class="btn btn-light" href="#/new">Create a ticket</a>
+        <a class="btn btn-ghost-light" href="#/architecture">See how it works</a>
+      </div>
+      <div class="model-pill" id="model-pill"><span class="dot-live"></span><span>Loading model info…</span></div>
+    </section>
+
+    <div class="stats" id="stats">
+      ${[["Tickets", "total"], ["Agent working", "working"], ["Awaiting your approval", "attn"], ["Pull requests opened", "good"]]
+        .map(([l, k]) => `<div class="stat ${k}"><div class="num" data-k="${k}">–</div><div class="label">${l}</div></div>`).join("")}
     </div>
-    <div class="card" id="list"><div class="muted">Loading…</div></div>`;
+
+    <div class="section-head"><h2>How it works</h2><a class="small" href="#/architecture">Architecture and design →</a></div>
+    <div class="steps">${HOW_STEPS.map(([t, d, who], i) => `
+      <div class="step-card"><div class="n">${i + 1}</div><strong>${t}</strong><p>${d}</p><span class="who">${who}</span></div>`).join("")}
+    </div>
+
+    <div class="section-head"><h2>Tickets</h2><a class="btn btn-sm" href="#/new">New ticket</a></div>
+    <div class="card flush" id="list"><div class="muted" style="padding:14px">Loading…</div></div>`;
+
+  loadInfo().then(i => {
+    const el = document.getElementById("model-pill");
+    if (el) el.innerHTML = `<span class="dot-live"></span><span>Agent model <b>${esc(i.model)}</b> · ${esc(i.provider)}</span>`;
+  });
+
   every(async () => {
     try {
       const { cases } = await api("/cases");
+      const counts = {
+        total: cases.length,
+        working: cases.filter(c => ["NEW", "INVESTIGATING", "APPROVED", "DEVELOPING"].includes(c.state)).length,
+        attn: cases.filter(c => c.state === "AWAITING_APPROVAL").length,
+        good: cases.filter(c => c.pr_id).length,
+      };
+      document.querySelectorAll("#stats .num").forEach(n => n.textContent = counts[n.dataset.k]);
       const el = document.getElementById("list");
       if (!el) return;
       if (!cases.length) {
-        el.innerHTML = `<div class="empty"><p>No tickets yet.</p><a class="btn btn-primary" href="#/new">Create the first ticket</a></div>`;
+        el.innerHTML = `<div class="empty"><p>No tickets yet. Pick a scenario with a real bug planted in the demo codebase.</p>
+          <a class="btn btn-primary" href="#/new">Create the first ticket</a></div>`;
         return;
       }
       el.innerHTML = `<table class="cases"><thead><tr>
@@ -97,7 +149,7 @@ function renderList() {
       el.querySelectorAll("tr.row").forEach(tr => tr.onclick = () => location.hash = `#/cases/${tr.dataset.id}`);
     } catch (e) {
       const el = document.getElementById("list");
-      if (el) el.innerHTML = `<div class="notice bad">Could not load tickets: ${esc(e.message)}</div>`;
+      if (el) el.innerHTML = `<div class="notice bad" style="margin:10px">Could not load tickets: ${esc(e.message)}</div>`;
     }
   });
 }
@@ -369,4 +421,173 @@ function renderCase(id) {
   every(refresh);
 }
 
+// ---------- architecture / how it works ----------
+const ICONS = {
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg>',
+};
+
+function archDiagram(model) {
+  const box = (x, y, title, l1, l2, cls = "") => `
+    <rect class="box ${cls}" x="${x}" y="${y}" width="150" height="96" rx="10"/>
+    <text class="t" x="${x + 75}" y="${y + 38}" text-anchor="middle">${esc(title)}</text>
+    <text class="s" x="${x + 75}" y="${y + 58}" text-anchor="middle">${esc(l1)}</text>
+    ${l2 ? `<text class="s" x="${x + 75}" y="${y + 74}" text-anchor="middle">${esc(l2)}</text>` : ""}`;
+  const edge = (d, agent = false) => `<path class="edge ${agent ? "agent" : ""}" d="${d}" marker-end="url(#${agent ? "arrA" : "arrG"})"/>`;
+  const lbl = (x, y, t, anchor = "middle") => `<text class="lbl" x="${x}" y="${y}" text-anchor="${anchor}">${esc(t)}</text>`;
+  return `<svg class="diagram" viewBox="0 0 1030 470" role="img" aria-label="Architecture diagram: browser to reverse proxy to web UI and control plane; agent worker polls the control plane, calls the LLM, and uses the MCP gateway, which calls the demo service and the control plane.">
+    <defs>
+      <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0,0 L10,5 L0,10 z"/></marker>
+      <marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow agent" d="M0,0 L10,5 L0,10 z"/></marker>
+    </defs>
+    <rect class="zone" x="185" y="8" width="840" height="452" rx="14"/>
+    <text class="zone-lbl" x="200" y="28">ONE VM · DOCKER COMPOSE</text>
+    ${box(20, 160, "Browser", "Demo user", "")}
+    ${box(200, 160, "Reverse proxy", "Caddy", "public port 80")}
+    ${box(420, 30, "Web UI", "Static HTML / JS", "served by nginx")}
+    ${box(420, 290, "Control plane", "Case state machine", "task queue · SQLite", "hl")}
+    ${box(640, 30, "Agent worker", "Investigator and", "developer roles", "hl")}
+    ${box(640, 290, "MCP gateway", "jira · logs · repo", "· context tools")}
+    ${box(860, 30, "LLM", model || "Ollama", "OpenAI-compatible API", "ext")}
+    ${box(860, 290, "Demo service", "Fake Jira · logs", "repo + PRs · SQLite")}
+    ${edge("M170,208 H198")}
+    ${edge("M350,208 H385 V78 H418")}
+    ${edge("M385,208 V338 H418")}
+    ${lbl(378, 140, "pages", "end")}
+    ${lbl(378, 292, "/api/*", "end")}
+    ${edge("M790,78 H858", true)}
+    ${lbl(825, 66, "LLM calls")}
+    ${edge("M715,126 V288", true)}
+    ${lbl(723, 205, "tool calls", "start")}
+    ${lbl(723, 220, "over MCP", "start")}
+    ${edge("M640,100 H605 V320 H572", true)}
+    ${lbl(597, 200, "polls tasks,", "end")}
+    ${lbl(597, 215, "posts events", "end")}
+    ${edge("M790,338 H858")}
+    ${lbl(825, 330, "REST")}
+    ${edge("M640,356 H572")}
+    ${lbl(606, 348, "context")}
+    ${edge("M495,386 V430 H935 V388")}
+    ${lbl(715, 422, "creates tickets · reads PRs")}
+  </svg>`;
+}
+
+const FLOW = [
+  ["A user creates a ticket in the UI, optionally from a demo scenario.", "human", "You"],
+  ["The control plane creates the ticket in the fake Jira, opens a case, and queues an investigate task.", "", "Control plane"],
+  ["The agent, polling the task queue, claims the task with a time-limited lease.", "agent", "Agent"],
+  ["As investigator, it reads the ticket, searches logs and resolved tickets, reads the code, and submits a root cause and proposed fix.", "agent", "Agent"],
+  ["You approve the fix, request changes (the agent re-investigates with your feedback), or reject it.", "human", "You"],
+  ["On approval, the control plane queues a develop task.", "", "Control plane"],
+  ["As developer, the agent writes search/replace edits plus a regression test, runs the tests, and opens a pull request.", "agent", "Agent"],
+  ["The PR, its diff and test results appear on the case, and the Jira ticket moves to In Review.", "human", "You"],
+];
+
+const COMPONENTS = [
+  ["Web UI", "HTML · JS · nginx", "Create tickets, follow each case live, approve fixes, and read PR diffs and the agent's step-by-step activity."],
+  ["Control plane", "Python · Starlette · SQLite", "The source of truth for workflow: case states, the task queue with leases and retries, investigations, reviews and the event timeline."],
+  ["Agent worker", "Python · MCP client", "Polls for tasks and runs a tool-calling loop with the LLM. Each role has its own prompt, tool allowlist and step budget."],
+  ["MCP gateway", "Python · MCP SDK", "One MCP server exposing Jira, logs, repository and case-context tools over streamable HTTP. The agent only acts through these tools."],
+  ["Demo service", "Python · Starlette · SQLite", "Stands in for real systems: a Jira-like ticket store with history, an application log store, and a repository that applies edits, runs tests and renders diffs."],
+  ["LLM", "Ollama or any OpenAI-compatible API", "A local open-weight model by default, so the demo runs with no external dependencies. Swappable for a hosted model with one setting."],
+  ["Reverse proxy", "Caddy", "The only public entry point: serves the UI and routes /api to the control plane. Internal services are not exposed."],
+];
+
+const TOOLS = [
+  ["jira_get_ticket", "Read a ticket with its comments", "Investigator"],
+  ["jira_search_tickets", "Find similar resolved tickets and their root causes", "Investigator"],
+  ["jira_add_comment", "Comment on the ticket", "Developer"],
+  ["logs_search", "Search recent application logs by service, level and keywords", "Investigator"],
+  ["repo_list_files · repo_read_file · repo_search_code", "Explore and read the codebase", "Both"],
+  ["repo_run_tests", "Dry-run edits against the test suite and see the diff", "Developer"],
+  ["repo_create_pull_request", "Open a PR. Only succeeds if the edits apply and all tests pass", "Developer"],
+  ["context_get_case", "Case state, ticket, previous investigations and reviewer feedback", "Both"],
+  ["context_submit_investigation", "Submit the root cause and proposed fix for review", "Investigator"],
+  ["context_record_pull_request", "Link the PR to the case", "Developer"],
+];
+
+const CHOICES = [
+  ["Human approval gate", "The agent can investigate on its own, but no code is written until a person approves the proposed fix."],
+  ["Tools, not direct access", "The agent touches tickets, logs and code only through MCP tools, which keeps what it can do explicit and auditable."],
+  ["Tests decide, not the model", "Edits are applied to a scratch copy and the full test suite runs before a PR can be created."],
+  ["Polling with leases", "The agent claims tasks with a time-limited lease and heartbeats. If it crashes, the task is retried automatically."],
+  ["Guardrails for small models", "Search/replace edits instead of diffs, truncated tool output, a forced case id, one nudge if the model stops early, and a check that recovers a PR it forgot to record."],
+  ["Everything is observable", "Every model message and tool call is stored on the case and shown live in the activity panel."],
+];
+
+function renderArchitecture() {
+  const lifecycle = ["NEW", "INVESTIGATING", "AWAITING_APPROVAL", "APPROVED", "DEVELOPING", "PR_OPEN"];
+  app.innerHTML = `
+    <div class="doc-hero">
+      <div class="eyebrow">How it works</div>
+      <h1>Architecture of the Ticket-to-PR Agent</h1>
+      <p class="lead">An AI agent that turns bug tickets into tested pull requests. It works the way an on-call engineer would:
+        read the report, check the logs and past incidents, find the bug in the code, propose a fix, and, once a human
+        agrees, ship the patch.</p>
+      <div class="toc">
+        <a href="#arch-what">What it does</a><a href="#arch-diagram">Architecture</a><a href="#arch-flow">Request flow</a>
+        <a href="#arch-components">Components</a><a href="#arch-lifecycle">Case lifecycle</a><a href="#arch-tools">Agent tools</a>
+        <a href="#arch-choices">Design choices</a>
+      </div>
+    </div>
+
+    <div class="section-head" id="arch-what"><h2>What it does</h2></div>
+    <div class="pillars">
+      <div class="pillar"><div class="ico">${ICONS.search}</div><strong>Investigates like an engineer</strong>
+        <p>Correlates the ticket with error logs, similar resolved tickets and the actual source code, then explains the root cause with evidence.</p></div>
+      <div class="pillar"><div class="ico">${ICONS.person}</div><strong>Keeps a human in charge</strong>
+        <p>Every proposed fix waits for approval. Reviewers can approve, reject, or send feedback that the agent uses in a new investigation.</p></div>
+      <div class="pillar"><div class="ico">${ICONS.check}</div><strong>Ships tested code</strong>
+        <p>Implements the approved fix with a regression test, and only opens a pull request once the whole test suite passes.</p></div>
+    </div>
+
+    <div class="section-head" id="arch-diagram"><h2>Architecture</h2></div>
+    <div class="card">
+      <div class="diagram-wrap" id="diagram">${archDiagram(info?.model)}</div>
+      <div class="legend"><span><i></i>Service-to-service HTTP</span><span><i class="agent"></i>Agent traffic</span>
+        <span>Highlighted: orchestration (control plane) and reasoning (agent)</span></div>
+      <p class="muted small" style="margin:14px 0 0">Every component runs as its own Docker container on a single VM, started with one script.
+        Only the reverse proxy is reachable from the internet.</p>
+    </div>
+
+    <div class="section-head" id="arch-flow"><h2>Request flow</h2></div>
+    <div class="card"><ol class="flow">${FLOW.map(([t, cls, who]) => `<li><div>${esc(t)}</div><span class="actor ${cls}">${esc(who)}</span></li>`).join("")}</ol></div>
+
+    <div class="section-head" id="arch-components"><h2>Components</h2></div>
+    <div class="comp-grid">${COMPONENTS.map(([n, tech, d]) => `
+      <div class="comp"><div class="head"><strong>${esc(n)}</strong><span class="tech">${esc(tech)}</span></div><p>${esc(d)}</p></div>`).join("")}
+    </div>
+
+    <div class="section-head" id="arch-lifecycle"><h2>Case lifecycle</h2></div>
+    <div class="card">
+      <div class="lifecycle">${lifecycle.map(s => `<span class="badge ${s}">${STATE_LABEL[s]}</span>`).join('<span class="arr">→</span>')}</div>
+      <ul class="lifecycle-notes">
+        <li><span class="badge AWAITING_APPROVAL">Awaiting approval</span> → <span class="badge NEW">New</span> when the reviewer requests changes; the agent re-investigates with that feedback.</li>
+        <li><span class="badge AWAITING_APPROVAL">Awaiting approval</span> → <span class="badge REJECTED">Rejected</span> when the reviewer rejects the fix.</li>
+        <li>Investigating or developing → <span class="badge FAILED">Failed</span> after the agent runs out of attempts. A retry puts the case back in the queue.</li>
+      </ul>
+    </div>
+
+    <div class="section-head" id="arch-tools"><h2>Agent tools (MCP)</h2></div>
+    <div class="card" style="overflow-x:auto"><table class="tools">
+      <thead><tr><th>Tool</th><th>What it does</th><th>Used by</th></tr></thead>
+      <tbody>${TOOLS.map(([n, d, r]) => `<tr><td><code>${esc(n)}</code></td><td>${esc(d)}</td><td class="muted">${esc(r)}</td></tr>`).join("")}</tbody>
+    </table></div>
+
+    <div class="section-head" id="arch-choices"><h2>Design choices</h2></div>
+    <div class="card"><div class="choices">${CHOICES.map(([t, d]) => `<div class="choice"><strong>${esc(t)}</strong><p>${esc(d)}</p></div>`).join("")}</div></div>
+
+    <div class="section-head"><h2>Tech stack</h2></div>
+    <div class="stack">${["Python 3.12", "Starlette", "SQLite", "Model Context Protocol (MCP)", "Ollama", "OpenAI-compatible API",
+      "Docker Compose", "Caddy", "nginx", "Plain HTML/CSS/JS"].map(t => `<span>${esc(t)}</span>`).join("")}</div>`;
+
+  app.querySelectorAll(".toc a").forEach(a => a.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    document.querySelector(a.getAttribute("href"))?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
+  if (!info) loadInfo().then(i => { const d = document.getElementById("diagram"); if (d) d.innerHTML = archDiagram(i.model); });
+}
+
+loadInfo();
 route();

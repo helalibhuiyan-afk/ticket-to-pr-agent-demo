@@ -3,18 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ticket to PR</title>
+  <title>Ticket-to-PR Agent</title>
+  <meta name="description" content="An AI agent that investigates bug tickets and opens pull requests, with a human approving every fix.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233350e0'/%3E%3Cpath d='M9 11h8M9 16h5M9 21h8' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M20 12l4 4-4 4' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#/"><span class="brand-mark">T→PR</span> Ticket to PR</a>
-    <nav>
-      <a href="#/" data-nav="list">Tickets</a>
-      <a href="#/new" class="btn btn-primary btn-sm" data-nav="new">New ticket</a>
-    </nav>
+    <div class="topbar-inner">
+      <a class="brand" href="#/">
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="currentColor"/>
+          <path d="M9 11h8M9 16h5M9 21h8" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M20 12l4 4-4 4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Ticket-to-PR <span class="brand-sub">Agent</span></span>
+      </a>
+      <nav>
+        <a href="#/" data-nav="home">Dashboard</a>
+        <a href="#/architecture" data-nav="architecture">How it works</a>
+        <a href="#/new" class="btn btn-primary btn-sm" data-nav="new">New ticket</a>
+      </nav>
+    </div>
   </header>
   <main id="app"></main>
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>Ticket-to-PR Agent · a demo of agentic bug triage with a human in the loop</span>
+      <span id="footer-model"></span>
+    </div>
+  </footer>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -24,6 +24,15 @@ async def health(request):
     return JSONResponse({"status": "ok", "service": "control-plane"})
 
 
+async def info(request):
+    """What the UI shows about the running setup."""
+    import os
+    base = os.environ.get("LLM_BASE_URL", "")
+    provider = ("Local model via Ollama" if "ollama" in base else
+                "Scripted mock LLM" if "mock-llm" in base else "Hosted OpenAI-compatible API")
+    return JSONResponse({"model": os.environ.get("LLM_MODEL", "unknown"), "provider": provider})
+
+
 async def list_scenarios(request):
     path = SEED_DIR / "scenarios.yaml"
     data = yaml.safe_load(path.read_text()) if path.exists() else {}
@@ -85,6 +94,7 @@ async def retry(request):
 
 public_routes = [
     Route("/health", health),
+    Route("/info", info),
     Route("/scenarios", list_scenarios),
     Route("/tickets", create_ticket, methods=["POST"]),
     Route("/cases", list_cases),

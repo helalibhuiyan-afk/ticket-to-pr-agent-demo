@@ -23,6 +23,8 @@ services:
       DEMO_SERVICE_URL: http://demo-service:8000
       MAX_TASK_ATTEMPTS: ${MAX_TASK_ATTEMPTS:-2}
       TASK_LEASE_SECONDS: ${TASK_LEASE_SECONDS:-1200}
+      LLM_MODEL: ${LLM_MODEL:-gpt-oss:20b}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
     volumes:
       - ./seed:/seed:ro
       - cp-data:/data
